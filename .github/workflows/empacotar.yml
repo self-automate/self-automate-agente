@@ -1,0 +1,31 @@
+name: empacotar
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run empacotar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bot-agente
+          path: dist/bot-agente.exe
+          if-no-files-found: error
