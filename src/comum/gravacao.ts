@@ -1,0 +1,202 @@
+import { ehTecla } from './teclas.js';
+export const VERSAO_DA_GRAVACAO = 1;
+const TETO_DE_ACOES = 2000;
+const TETO_DE_TEXTO = 2000;
+export type AlvoNaJanela = {
+    id: string;
+} | {
+    nome: string;
+};
+export type AcaoGravada = {
+    tipo: 'web.abrir';
+    url: string;
+} | {
+    tipo: 'web.clicar';
+    seletor: string;
+} | {
+    tipo: 'web.preencher';
+    seletor: string;
+    valor: string;
+} | {
+    tipo: 'web.preencherSegredo';
+    seletor: string;
+} | {
+    tipo: 'web.selecionar';
+    seletor: string;
+    texto: string;
+} | {
+    tipo: 'web.marcar';
+    seletor: string;
+    marcado: boolean;
+} | {
+    tipo: 'web.teclar';
+    tecla: string;
+} | {
+    tipo: 'janela.clicar';
+    titulo: string;
+    alvo: AlvoNaJanela;
+} | {
+    tipo: 'janela.digitar';
+    titulo: string;
+    alvo: AlvoNaJanela;
+    valor: string;
+} | {
+    tipo: 'janela.digitarSegredo';
+    titulo: string;
+    alvo: AlvoNaJanela;
+} | {
+    tipo: 'janela.teclar';
+    titulo: string;
+    tecla: string;
+};
+export interface Gravacao {
+    versao: typeof VERSAO_DA_GRAVACAO;
+    acoes: AcaoGravada[];
+}
+const texto = (v: unknown): string | undefined => {
+    if (typeof v !== 'string')
+        return undefined;
+    const t = v.trim();
+    return t ? t.slice(0, TETO_DE_TEXTO) : undefined;
+};
+const valor = (v: unknown): string | undefined => (typeof v === 'string' ? v.slice(0, TETO_DE_TEXTO) : undefined);
+const url = (v: unknown): string | undefined => {
+    const t = texto(v);
+    return t && /^https?:\/\//i.test(t) ? t : undefined;
+};
+const alvo = (v: unknown): AlvoNaJanela | undefined => {
+    if (!v || typeof v !== 'object')
+        return undefined;
+    const o = v as Record<string, unknown>;
+    const id = texto(o.id);
+    if (id)
+        return { id };
+    const nome = texto(o.nome);
+    return nome ? { nome } : undefined;
+};
+const tecla = (v: unknown): string | undefined => {
+    const t = texto(v)?.toUpperCase();
+    return t && ehTecla(t) ? t : undefined;
+};
+function acao(v: unknown): AcaoGravada | undefined {
+    if (!v || typeof v !== 'object')
+        return undefined;
+    const o = v as Record<string, unknown>;
+    const seletor = texto(o.seletor);
+    const titulo = texto(o.titulo);
+    switch (o.tipo) {
+        case 'web.abrir': {
+            const u = url(o.url);
+            return u ? { tipo: 'web.abrir', url: u } : undefined;
+        }
+        case 'web.clicar':
+            return seletor ? { tipo: 'web.clicar', seletor } : undefined;
+        case 'web.preencher': {
+            const vl = valor(o.valor);
+            return seletor && vl !== undefined ? { tipo: 'web.preencher', seletor, valor: vl } : undefined;
+        }
+        case 'web.preencherSegredo':
+            return seletor ? { tipo: 'web.preencherSegredo', seletor } : undefined;
+        case 'web.selecionar': {
+            const t = texto(o.texto);
+            return seletor && t ? { tipo: 'web.selecionar', seletor, texto: t } : undefined;
+        }
+        case 'web.marcar':
+            return seletor && typeof o.marcado === 'boolean' ? { tipo: 'web.marcar', seletor, marcado: o.marcado } : undefined;
+        case 'web.teclar': {
+            const t = tecla(o.tecla);
+            return t ? { tipo: 'web.teclar', tecla: t } : undefined;
+        }
+        case 'janela.clicar': {
+            const a = alvo(o.alvo);
+            return titulo && a ? { tipo: 'janela.clicar', titulo, alvo: a } : undefined;
+        }
+        case 'janela.digitar': {
+            const a = alvo(o.alvo);
+            const vl = valor(o.valor);
+            return titulo && a && vl !== undefined ? { tipo: 'janela.digitar', titulo, alvo: a, valor: vl } : undefined;
+        }
+        case 'janela.digitarSegredo': {
+            const a = alvo(o.alvo);
+            return titulo && a ? { tipo: 'janela.digitarSegredo', titulo, alvo: a } : undefined;
+        }
+        case 'janela.teclar': {
+            const t = tecla(o.tecla);
+            return titulo && t ? { tipo: 'janela.teclar', titulo, tecla: t } : undefined;
+        }
+        default:
+            return undefined;
+    }
+}
+export function lerGravacao(bruto: unknown): {
+    gravacao?: Gravacao;
+    descartadas: number;
+    problema?: string;
+} {
+    if (!bruto || typeof bruto !== 'object')
+        return { descartadas: 0, problema: 'não é uma gravação' };
+    const o = bruto as Record<string, unknown>;
+    if (o.versao !== VERSAO_DA_GRAVACAO)
+        return { descartadas: 0, problema: `versão da gravação desconhecida: ${String(o.versao)}` };
+    if (!Array.isArray(o.acoes))
+        return { descartadas: 0, problema: 'a gravação não tem a lista de ações' };
+    if (o.acoes.length > TETO_DE_ACOES)
+        return { descartadas: 0, problema: `ações demais numa gravação (${o.acoes.length}; o teto é ${TETO_DE_ACOES})` };
+    const acoes: AcaoGravada[] = [];
+    let descartadas = 0;
+    for (const v of o.acoes) {
+        const a = acao(v);
+        if (a)
+            acoes.push(a);
+        else
+            descartadas++;
+    }
+    return { gravacao: { versao: VERSAO_DA_GRAVACAO, acoes }, descartadas };
+}
+export const GESTOS_NAO_GRAVADOS = [
+    'cliqueDireito',
+    'duploClique',
+    'arrastar',
+    'atalho',
+    'teclaDeFuncao',
+    'iframe',
+    'arquivo',
+] as const;
+export type GestoNaoGravado = (typeof GESTOS_NAO_GRAVADOS)[number];
+export type NaoGravados = Partial<Record<GestoNaoGravado, number>>;
+const NOMES_DOS_GESTOS: Record<GestoNaoGravado, string> = {
+    cliqueDireito: 'clique com o botão direito',
+    duploClique: 'duplo clique',
+    arrastar: 'arrastar',
+    atalho: 'atalho de teclado (Ctrl ou Alt)',
+    teclaDeFuncao: 'tecla de função (F1 a F12)',
+    iframe: 'ação dentro de um quadro (iframe)',
+    arquivo: 'envio de arquivo',
+};
+export const nomeDoGesto = (g: GestoNaoGravado): string => NOMES_DOS_GESTOS[g];
+export const ehGestoNaoGravado = (g: unknown): g is GestoNaoGravado => typeof g === 'string' && (GESTOS_NAO_GRAVADOS as readonly string[]).includes(g);
+const TETO_DO_GESTO = 10000;
+export function lerNaoGravados(bruto: unknown): NaoGravados {
+    const r: NaoGravados = {};
+    if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto))
+        return r;
+    for (const [g, n] of Object.entries(bruto as Record<string, unknown>)) {
+        if (!ehGestoNaoGravado(g) || typeof n !== 'number' || !Number.isInteger(n) || n <= 0)
+            continue;
+        r[g] = Math.min(n, TETO_DO_GESTO);
+    }
+    return r;
+}
+export function somarNaoGravados(a: NaoGravados, b: NaoGravados): NaoGravados {
+    const r: NaoGravados = { ...a };
+    for (const g of GESTOS_NAO_GRAVADOS)
+        if (b[g])
+            r[g] = Math.min((r[g] ?? 0) + b[g]!, TETO_DO_GESTO);
+    return r;
+}
+export function avisoDosNaoGravados(c: NaoGravados): string | undefined {
+    const itens = GESTOS_NAO_GRAVADOS.filter((g) => (c[g] ?? 0) > 0).sort((x, y) => c[y]! - c[x]!);
+    if (!itens.length)
+        return undefined;
+    return `Não viraram passo — complete à mão no Studio: ${itens.map((g) => `${c[g]} × ${NOMES_DOS_GESTOS[g]}`).join(', ')}.`;
+}

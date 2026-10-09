@@ -6,7 +6,7 @@ import type { Pedido, Transporte } from './comum/transporte-tipos.js';
 import { VERSAO } from './comum/versao.js';
 import type { Cofre } from './comum/cofre.js';
 import type { Robo } from './robo.js';
-import { atenderOrdem, type CanalDeOrdens, type CelularDoAgente } from './comum/atender-ordem.js';
+import { atenderOrdem, type CanalDeOrdens, type CelularDoAgente, type GravadorDoAgente } from './comum/atender-ordem.js';
 import type { AcessoDaMaquina } from './comum/catalogo-de-leitura.js';
 import { contaWindowsDoProcesso } from './comum/contas-de-execucao.js';
 import type { PacoteAnunciado } from './comum/pacote-de-robos.js';
@@ -32,6 +32,7 @@ export interface DependenciasDoTique {
     executar?: (id: string, robo: Robo, pedido?: Pedido) => Promise<unknown>;
     cancelar?: (execucaoId: string) => Promise<string>;
     celular?: CelularDoAgente;
+    gravador?: GravadorDoAgente;
 }
 async function recusarSemOrfa(transporte: Transporte, id: string, motivo: string): Promise<void> {
     await transporte.fecharExecucao(id, 'FALHOU', new Date(), motivo);
@@ -100,7 +101,7 @@ export async function umTique(d: DependenciasDoTique): Promise<'vazio' | 'execut
         montagens: d.montagens?.(),
     };
     await carimbarVersao(d.transporte, d.onde, () => d.reiniciar({ robosRodando: [...d.rodando].sort() }), capacidades);
-    if ((await atenderOrdem(d.canal, d.acesso, d.atualizacao, d.cancelar, d.celular)) === 'atendida')
+    if ((await atenderOrdem(d.canal, d.acesso, d.atualizacao, d.cancelar, d.celular, d.gravador)) === 'atendida')
         return 'ordem';
     const limite = d.concorrencia && d.concorrencia >= 1 ? d.concorrencia : 1;
     if (d.rodando.size >= limite)

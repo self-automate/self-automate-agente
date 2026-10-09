@@ -232,6 +232,18 @@ export function transporteHttps(endereco: string, token: string, fetchFn: typeof
             }>(r, 'segredo da ordem');
             return typeof corpo.segredo === 'string' && corpo.segredo ? corpo.segredo : undefined;
         },
+        parcialDaGravacao: async (id, acoes, avisos, fim = false, naoGravados) => {
+            const r = await chamar(`/agente/ordem/${encodeURIComponent(id)}/gravacao`, {
+                method: 'POST',
+                body: JSON.stringify({ acoes, avisos, fim, ...(naoGravados ? { naoGravados } : {}) }),
+            });
+            if (!r.ok)
+                throw new Error(`o painel recusou a gravação: HTTP ${r.status}`);
+            const corpo = await jsonOuFalha<{
+                parar?: unknown;
+            }>(r, 'gravação');
+            return { parar: corpo.parar === true };
+        },
     };
     return {
         transporte,

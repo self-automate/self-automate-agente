@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "imapflow": "1.7.1",
-    "nodemailer": "9.0.5"
+    "nodemailer": "9.0.5",
+    "playwright": "1.62.1"
   },
   "devDependencies": {
     "@types/node": "22.20.1",

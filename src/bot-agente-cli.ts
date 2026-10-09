@@ -1,5 +1,5 @@
 import { hostname } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { writeFileSync, renameSync, existsSync, mkdirSync, rmSync, copyFileSync, unlinkSync } from 'node:fs';
 import { lerConfig, lerConcorrencia, gravarConfig, caminhoDaConfig, configComTokenNovo, } from './comum/config-do-agente.js';
 import { parearAgente } from './comum/parear-agente.js';
@@ -36,6 +36,7 @@ import { powershell } from './blocos/powershell.js';
 import { esperarAntecessorSair, lerProcessos, comandoDeListarProcessos, ehOutraInstancia, pidDeclarado, RITMO_PADRAO, } from './comum/instancia-unica.js';
 import { VERSAO } from './comum/versao.js';
 import { comValidade, medirAreaDeTrabalho, medirSessaoZero } from './comum/area-de-trabalho.js';
+import { gravadorDoAgente } from './comum/gravador-do-agente.js';
 const areaDeTrabalho = comValidade(medirAreaDeTrabalho, 30000);
 const sessaoZero = comValidade(medirSessaoZero, 600000);
 const PASTA = dirname(process.execPath);
@@ -235,6 +236,13 @@ function umaVolta(endereco: string, token: string): Promise<void> {
         celular: {
             parear: (argumento, segredo) => parearPeloAgente(argumento, segredo, rodarAdbPeloCaminho(lerCaminhoDoAdb(caminhoDaConfig(PASTA)))),
         },
+        gravador: gravadorDoAgente({
+            sessaoZero,
+            areaDeTrabalho,
+            programaDoAgente: basename(process.execPath).replace(/\.exe$/i, ''),
+            ambiente: process.env,
+            existe: existsSync,
+        }),
         onde: hostname(),
         reiniciar: (contexto) => void powershell(comandoDeReiniciar(process.pid, process.execPath, contexto.robosRodando)).catch(() => undefined),
         canal: canalDeOrdens,

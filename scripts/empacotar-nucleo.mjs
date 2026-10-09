@@ -18,6 +18,34 @@ import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const ENTRADA_DA_CASCA = 'src/bot-agente-cli.ts';
+
+/**
+ * O Playwright (e o SFTP) vêm do DISCO, ao lado do `.exe`, e não de dentro
+ * dele: num SEA o `require` embutido só serve módulo do próprio Node, e o
+ * `playwright-core` resolve os próprios arquivos em tempo de execução. O
+ * pacote vira um módulo de uma linha que chama o `require` de disco do banner.
+ * `playwright` (o invólucro) é atendido pelo `playwright-core` (a biblioteca).
+ */
+export function atalhoDePlaywrightNoDisco() {
+  // As âncoras importam: sem elas, `playwright-chromium` e `@playwright/test` cairiam aqui.
+  const FILTRO = /^(playwright(-core)?|ssh2-sftp-client|ssh2)$/;
+  const NO_DISCO = { playwright: 'playwright-core' };
+  return {
+    name: 'playwright-de-disco',
+    setup(build) {
+      build.onResolve({ filter: FILTRO }, (args) => ({
+        path: NO_DISCO[args.path] ?? args.path,
+        namespace: 'playwright-de-disco',
+      }));
+      build.onLoad({ filter: /.*/, namespace: 'playwright-de-disco' }, (args) => ({
+        // CommonJS, porque o SEA roda o ponto de entrada por `embedderRunCjs`; e
+        // `globalThis.` para o esbuild não marcar o nome como indefinido.
+        contents: `module.exports = globalThis.__requireDeDisco('${args.path}');`,
+        loader: 'js',
+      }));
+    },
+  };
+}
 export const FUSIVEL_DO_SEA = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
 /**
@@ -56,7 +84,9 @@ export function configDoBundle({ raiz, entrada, versao, outfile, plugins = [] })
         "globalThis.__requireDeDisco = require('module').createRequire(" +
         "require('path').join(__navegadorNoDisco, 'node_modules', 'ancora.js'));",
     },
-    plugins,
+    // O atalho do Playwright SEMPRE: a casca usa o Playwright desde a 0163 (o
+    // gravador), e um bundle sem ele tenta empacotar o playwright-core e quebra.
+    plugins: plugins.some((p) => p.name === 'playwright-de-disco') ? plugins : [atalhoDePlaywrightNoDisco(), ...plugins],
   };
 }
 

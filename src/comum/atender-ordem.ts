@@ -1,5 +1,6 @@
 import { registrar } from './log.js';
 import { LEITURAS, leituraDoNome, type AcessoDaMaquina } from './catalogo-de-leitura.js';
+import type { AcaoGravada, NaoGravados } from './gravacao.js';
 export interface CanalDeOrdens {
     retirarOrdem(): Promise<{
         id: string;
@@ -8,13 +9,22 @@ export interface CanalDeOrdens {
     } | undefined>;
     responderOrdem(id: string, saida: string, codigo: number, duracaoMs: number): Promise<void>;
     segredoDaOrdem?(id: string): Promise<string | undefined>;
+    parcialDaGravacao?(id: string, acoes: AcaoGravada[], avisos: string[], fim?: boolean, naoGravados?: NaoGravados): Promise<{
+        parar: boolean;
+    }>;
+}
+export interface GravadorDoAgente {
+    gravar: (argumento: string, parcial: (acoes: AcaoGravada[], avisos: string[], fim?: boolean, naoGravados?: NaoGravados) => Promise<{
+        parar: boolean;
+    }>) => Promise<string>;
+    aoLancar?: (gravacao: Promise<void>) => void;
 }
 export interface CelularDoAgente {
     parear: (argumento: string, segredo: string) => Promise<string>;
     aoLancar?: (pareamento: Promise<void>) => void;
 }
 const NAO_EXECUTOU = 127;
-export async function atenderOrdem(canal: CanalDeOrdens, acesso: AcessoDaMaquina, atualizacao?: (versao: string) => Promise<string>, cancelar?: (execucaoId: string) => Promise<string>, celular?: CelularDoAgente): Promise<'vazia' | 'atendida'> {
+export async function atenderOrdem(canal: CanalDeOrdens, acesso: AcessoDaMaquina, atualizacao?: (versao: string) => Promise<string>, cancelar?: (execucaoId: string) => Promise<string>, celular?: CelularDoAgente, gravador?: GravadorDoAgente): Promise<'vazia' | 'atendida'> {
     let ordem;
     try {
         ordem = await canal.retirarOrdem();
@@ -29,6 +39,10 @@ export async function atenderOrdem(canal: CanalDeOrdens, acesso: AcessoDaMaquina
         return 'vazia';
     if (ordem.tipo === 'celular') {
         await atenderCelular(canal, ordem, celular);
+        return 'atendida';
+    }
+    if (ordem.tipo === 'gravar') {
+        await atenderGravacao(canal, ordem, gravador);
         return 'atendida';
     }
     const comeco = Date.now();
@@ -109,6 +123,51 @@ async function atenderCelular(canal: CanalDeOrdens, ordem: {
     })();
     celular.aoLancar?.(pareamento);
 }
+let gravando = false;
+async function atenderGravacao(canal: CanalDeOrdens, ordem: {
+    id: string;
+    argumento: string;
+}, gravador: GravadorDoAgente | undefined): Promise<void> {
+    const comeco = Date.now();
+    const responder = async (saida: string, codigo: number) => {
+        try {
+            await canal.responderOrdem(ordem.id, saida, codigo, Date.now() - comeco);
+        }
+        catch (erro) {
+            registrar('erro', 'falha ao responder ordem', {
+                ordem: ordem.id,
+                motivo: erro instanceof Error ? erro.message : String(erro),
+            });
+        }
+    };
+    const parcialDoCanal = canal.parcialDaGravacao?.bind(canal);
+    if (!gravador || !parcialDoCanal) {
+        await responder('este agente não sabe gravar automação — a versão dele é anterior ao gravador (0163): falta "Enviar a versão".', NAO_EXECUTOU);
+        return;
+    }
+    if (gravando) {
+        await responder('já há uma gravação em andamento neste computador: pare a outra e peça de novo.', NAO_EXECUTOU);
+        return;
+    }
+    gravando = true;
+    const gravacao = (async () => {
+        let saida: string;
+        let codigo: number;
+        try {
+            saida = await gravador.gravar(ordem.argumento, (acoes, avisos, fim, naoGravados) => parcialDoCanal(ordem.id, acoes, avisos, fim, naoGravados));
+            codigo = 0;
+        }
+        catch (erro) {
+            saida = erro instanceof Error ? erro.message : String(erro);
+            codigo = NAO_EXECUTOU;
+        }
+        finally {
+            gravando = false;
+        }
+        await responder(saida, codigo);
+    })();
+    gravador.aoLancar?.(gravacao);
+}
 async function executar(tipo: string, argumento: string, acesso: AcessoDaMaquina, atualizacao?: (versao: string) => Promise<string>, cancelar?: (execucaoId: string) => Promise<string>): Promise<string> {
     if (tipo === 'cancelar') {
         if (!cancelar) {
@@ -123,7 +182,7 @@ async function executar(tipo: string, argumento: string, acesso: AcessoDaMaquina
         return await atualizacao(argumento);
     }
     if (tipo !== 'leitura') {
-        throw new Error(`tipo de ordem não reconhecido: "${tipo}". Existem "leitura", "atualizacao", "cancelar" e "celular".`);
+        throw new Error(`tipo de ordem não reconhecido: "${tipo}". Existem "leitura", "atualizacao", "cancelar", "celular" e "gravar".`);
     }
     const primeiroEspaco = argumento.trim().search(/\s/);
     const nomeDaLeitura = primeiroEspaco === -1 ? argumento.trim() : argumento.trim().slice(0, primeiroEspaco);
