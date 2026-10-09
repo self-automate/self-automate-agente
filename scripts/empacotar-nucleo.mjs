@@ -66,11 +66,67 @@ export async function empacotarBundle(p) {
 }
 
 /**
+ * Nome e versão do produto, como as Propriedades do Windows os mostram. A
+ * versão do arquivo é a data UTC do commit (`ano.mês.dia.HHMM` — cada parte
+ * cabe em 16 bits), e a do produto leva o commit junto, para quem olhar saber
+ * de onde o binário saiu.
+ *
+ * @param {{ commit: string, data: string }} versao
+ */
+export function metadadosDaVersao({ commit, data }) {
+  const d = new Date(data);
+  if (Number.isNaN(d.getTime())) throw new Error(`a data da versão não é uma data: ${JSON.stringify(data)}`);
+  const [ano, mes, dia] = [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()];
+  return {
+    produto: 'Self Automate Agent',
+    empresa: 'Self Automate',
+    descricao: 'Self Automate - agente Windows',
+    versaoDoArquivo: [ano, mes, dia, d.getUTCHours() * 100 + d.getUTCMinutes()],
+    versaoDoProduto: `${ano}.${mes}.${dia} (${commit})`,
+  };
+}
+
+/**
+ * Grava os metadados no recurso de versão do executável. Sem isso o agente se
+ * apresenta como o `node.exe` que ele é por dentro ("Node.js 22.13.1").
+ *
+ * @param {string} exe
+ * @param {ReturnType<typeof metadadosDaVersao>} m
+ */
+export async function gravarMetadados(exe, m) {
+  const { NtExecutable, NtExecutableResource, Resource } = await import('resedit');
+  // A assinatura do Node já não vale depois de mexer no arquivo; sai junto.
+  const pe = NtExecutable.from(readFileSync(exe), { ignoreCert: true });
+  const recursos = NtExecutableResource.from(pe);
+  const idioma = { lang: 1033, codepage: 1200 };
+  const vi = Resource.VersionInfo.createEmpty();
+  vi.lang = idioma.lang;
+  const [a, b, c, d] = m.versaoDoArquivo;
+  vi.setFileVersion(a, b, c, d, idioma.lang);
+  vi.setProductVersion(a, b, c, d, idioma.lang);
+  vi.setStringValues(idioma, {
+    ProductName: m.produto,
+    CompanyName: m.empresa,
+    FileDescription: m.descricao,
+    FileVersion: m.versaoDoArquivo.join('.'),
+    ProductVersion: m.versaoDoProduto,
+    OriginalFilename: 'bot-agente.exe',
+    InternalName: 'bot-agente',
+    LegalCopyright: 'Self Automate - Apache-2.0',
+  });
+  // Troca o recurso de versão inteiro: editar o do Node deixaria campo dele.
+  recursos.entries = recursos.entries.filter((e) => e.type !== 16);
+  vi.outputToResourceEntries(recursos.entries);
+  recursos.outputResource(pe);
+  writeFileSync(exe, Buffer.from(pe.generate()));
+}
+
+/**
  * Passos 2 a 4: do bundle CommonJS ao `.exe`.
  *
- * @param {{ empacotado: string, pastaDeTrabalho: string, nome: string, exe: string }} p
+ * @param {{ empacotado: string, pastaDeTrabalho: string, nome: string, exe: string, versao: { commit: string, data: string } }} p
  */
-export async function montarExecutavel({ empacotado, pastaDeTrabalho, nome, exe }) {
+export async function montarExecutavel({ empacotado, pastaDeTrabalho, nome, exe, versao }) {
   const blob = join(pastaDeTrabalho, `sea-${nome}.blob`);
   const config = join(pastaDeTrabalho, `sea-${nome}.json`);
   writeFileSync(config, JSON.stringify({ main: empacotado, output: blob, disableExperimentalSEAWarning: true }, null, 2));
@@ -79,5 +135,8 @@ export async function montarExecutavel({ empacotado, pastaDeTrabalho, nome, exe 
   // antigo no arquivo, e o executável rodaria a versão anterior sem avisar.
   rmSync(exe, { force: true });
   copyFileSync(process.execPath, exe);
+  // Nome e versão ANTES de injetar: o recurso do agente entra por cima de um
+  // executável que já diz o que é.
+  await gravarMetadados(exe, metadadosDaVersao(versao));
   await postject.inject(exe, 'NODE_SEA_BLOB', readFileSync(blob), { sentinelFuse: FUSIVEL_DO_SEA });
 }

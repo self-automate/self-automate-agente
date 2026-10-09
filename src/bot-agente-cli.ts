@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { iniciarLaco } from './comum/laco-do-agente.js';
 import { executarCli } from './comum/cli-do-agente.js';
 import { NOME_DO_ATALHO, conteudoDoAtalho, pastaDeInstalacao } from './comum/primeira-vez.js';
+import { comandoDeApagarAoSair } from './comum/desinstalacao.js';
 import { transporteHttps } from './comum/transporte-https.js';
 import { lerCaminhoDoAdb, parearPeloAgente, rodarAdbPeloCaminho } from './comum/celular-do-agente.js';
 import { executarJob, umTique, usaTela } from './bot-agente.js';
@@ -32,7 +33,7 @@ import { CHAVES_DE_PUBLICACAO } from './comum/chave-de-publicacao.js';
 import { executarAtualizacao } from './comum/atualizar-agente.js';
 import { comandoDeGarantirTarefa, comandoDeConferirTarefa, comandoDeReiniciar, aTarefaExiste, decidirReinicio, NOME_DA_TAREFA, decidirRegistroDaTarefa, } from './comum/reinicio-do-agente.js';
 import { powershell } from './blocos/powershell.js';
-import { esperarAntecessorSair, lerProcessos, comandoDeListarProcessos, pidDeclarado, RITMO_PADRAO, } from './comum/instancia-unica.js';
+import { esperarAntecessorSair, lerProcessos, comandoDeListarProcessos, ehOutraInstancia, pidDeclarado, RITMO_PADRAO, } from './comum/instancia-unica.js';
 import { VERSAO } from './comum/versao.js';
 import { comValidade, medirAreaDeTrabalho, medirSessaoZero } from './comum/area-de-trabalho.js';
 const areaDeTrabalho = comValidade(medirAreaDeTrabalho, 30000);
@@ -294,6 +295,49 @@ else
                     }
                     catch {
                     }
+                },
+            };
+        })(),
+        desinstalacao: (() => {
+            const pastaPadrao = pastaDeInstalacao(process.env.LOCALAPPDATA ?? PASTA);
+            return {
+                pastaPadrao,
+                executavel: process.execPath,
+                pararAgentes: async () => {
+                    const vistos = lerProcessos(await powershell(comandoDeListarProcessos()));
+                    const alvos = vistos.filter((p) => ehOutraInstancia(process.pid, join(pastaPadrao, 'bot-agente.exe'), p) || ehOutraInstancia(process.pid, process.execPath, p));
+                    if (alvos.length)
+                        await powershell(`Stop-Process -Id ${alvos.map((p) => p.pid).join(',')} -Force`);
+                    return alvos.length;
+                },
+                apagarTarefa: async () => {
+                    if (!aTarefaExiste(await powershell(comandoDeConferirTarefa()).catch(() => '')))
+                        return 'nao-existia' as const;
+                    await powershell(`schtasks /Delete /TN ${NOME_DA_TAREFA} /F`);
+                    if (aTarefaExiste(await powershell(comandoDeConferirTarefa()).catch(() => ''))) {
+                        throw new Error('o schtasks respondeu, mas a tarefa continua la (pode exigir administrador)');
+                    }
+                    return 'apagada' as const;
+                },
+                apagarAtalhos: async () => {
+                    const pastas = (await powershell("[Environment]::GetFolderPath('Startup'); [Environment]::GetFolderPath('Desktop')"))
+                        .split(/\r?\n/)
+                        .map((l) => l.trim())
+                        .filter(Boolean);
+                    let apagados = 0;
+                    for (const p of pastas) {
+                        const atalho = join(p, NOME_DO_ATALHO);
+                        if (existsSync(atalho)) {
+                            unlinkSync(atalho);
+                            apagados++;
+                        }
+                    }
+                    return apagados;
+                },
+                apagarPastaAoSair: async (pasta) => {
+                    if (!existsSync(pasta))
+                        return;
+                    await powershell(comandoDeApagarAoSair(process.pid, pasta));
                 },
             };
         })(),

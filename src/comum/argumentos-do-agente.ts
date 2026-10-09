@@ -14,6 +14,8 @@ export type Comando = {
 } | {
     tipo: 'testar';
 } | {
+    tipo: 'desinstalar';
+} | {
     tipo: 'ajuda';
     erro?: string;
 };
@@ -35,6 +37,7 @@ const COMANDOS: Record<string, Comando['tipo']> = {
     '--conectar': 'conectar',
     '--status': 'status',
     '--testar': 'testar',
+    '--desinstalar': 'desinstalar',
     '--ajuda': 'ajuda',
 };
 function semBarraFinal(u: string): string {

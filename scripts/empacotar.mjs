@@ -61,7 +61,7 @@ const exe = join(DIST, 'bot-agente.exe');
 console.log(`1/2  bundle de ${ENTRADA_DA_CASCA}, versão ${commit}...`);
 await empacotarBundle({ raiz: RAIZ, entrada: ENTRADA_DA_CASCA, versao: { commit, data }, empacotado });
 console.log('2/2  executável único (SEA)...');
-await montarExecutavel({ empacotado, pastaDeTrabalho: DIST, nome: 'agente', exe });
+await montarExecutavel({ empacotado, pastaDeTrabalho: DIST, nome: 'agente', exe, versao: { commit, data } });
 
 const sha256 = createHash('sha256').update(readFileSync(exe)).digest('hex');
 console.log(`\n${exe}`);

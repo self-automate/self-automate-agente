@@ -3,6 +3,10 @@ import { aplicarCaixaDeTeste, type ConfigDoAgente } from './config-do-agente.js'
 import type { Versao } from './versao.js';
 import type { LacoEmCurso } from './laco-do-agente.js';
 import type { PedidoDoAgente, RespostaDaEspera } from './conexao-do-agente.js';
+import { win32 } from 'node:path';
+import { NOME_DO_ATALHO } from './primeira-vez.js';
+import { NOME_DA_TAREFA } from './reinicio-do-agente.js';
+import { planoDeDesinstalacao } from './desinstalacao.js';
 export interface EntradaSaida {
     escrever(linha: string): void;
     sair(codigo: number): void;
@@ -44,6 +48,14 @@ export interface Ambiente {
     criarAtalhos?(exe: string): Promise<void>;
     ligarAgente?(exe: string): Promise<void>;
     esperarEnter?(): Promise<void>;
+    desinstalacao?: {
+        pastaPadrao: string;
+        executavel: string;
+        pararAgentes(): Promise<number>;
+        apagarTarefa(): Promise<'apagada' | 'nao-existia'>;
+        apagarAtalhos(): Promise<number>;
+        apagarPastaAoSair(pasta: string): Promise<void>;
+    };
 }
 const AJUDA = `
 bot-agente - o agente do Self Automate
@@ -61,6 +73,8 @@ bot-agente - o agente do Self Automate
                                    o SEGREDO vem pela ENTRADA PADRAO, nunca
                                    por argumento: linha de comando e visivel
                                    para qualquer conta com sessao na maquina
+  bot-agente --desinstalar         para o agente e apaga os atalhos, a tarefa
+                                   agendada e a pasta instalada
 
 Opcoes:
   --intervalo <segundos>           padrao 5
@@ -73,6 +87,10 @@ export async function executarCli(argv: string[], io: EntradaSaida, amb: Ambient
             io.escrever(`erro: ${comando.erro}`);
         io.escrever(AJUDA);
         io.sair(comando.erro ? 1 : 0);
+        return;
+    }
+    if (comando.tipo === 'desinstalar') {
+        await desinstalar(io, amb);
         return;
     }
     if (comando.tipo === 'instalar') {
@@ -265,6 +283,15 @@ async function primeiraVez(io: EntradaSaida, amb: Ambiente, instalacao: NonNulla
         await fechar(0);
         return;
     }
+    io.escrever('  Isto vai:');
+    io.escrever(`    - copiar o agente para ${win32.dirname(instalacao.exe)}`);
+    io.escrever('    - abrir o navegador para voce confirmar a conexao com o painel');
+    io.escrever(`    - criar o atalho "${NOME_DO_ATALHO}" na Inicializacao do Windows e na Area de Trabalho`);
+    io.escrever('  Para desfazer depois: bot-agente --desinstalar');
+    io.escrever('');
+    io.escrever('  Tecle Enter para continuar, ou feche esta janela para cancelar.');
+    await amb.esperarEnter?.();
+    io.escrever('');
     try {
         await instalacao.copiar();
     }
@@ -298,4 +325,55 @@ async function primeiraVez(io: EntradaSaida, amb: Ambiente, instalacao: NonNulla
     io.escrever('  [ OK ]  Pronto! Este computador esta conectado e aparece em Meus dispositivos.');
     io.escrever('         O agente liga sozinho sempre que voce entrar no Windows.');
     await fechar(0);
+}
+async function desinstalar(io: EntradaSaida, amb: Ambiente): Promise<void> {
+    const d = amb.desinstalacao;
+    if (!d) {
+        io.escrever('erro: este executavel nao sabe se desinstalar.');
+        io.sair(1);
+        return;
+    }
+    if (!amb.interativo) {
+        io.escrever('erro: --desinstalar precisa de uma janela, para voce ler o que vai ser apagado e confirmar.');
+        io.sair(1);
+        return;
+    }
+    const plano = planoDeDesinstalacao({ executavel: d.executavel, pastaPadrao: d.pastaPadrao });
+    io.escrever('');
+    io.escrever('  SELF AUTOMATE - DESINSTALAR O AGENTE');
+    io.escrever('');
+    io.escrever('  Isto vai:');
+    io.escrever('    - parar o agente deste computador');
+    io.escrever(`    - apagar a tarefa agendada ${NOME_DA_TAREFA}, se existir`);
+    io.escrever(`    - apagar o atalho "${NOME_DO_ATALHO}" da Inicializacao do Windows e da Area de Trabalho`);
+    io.escrever(`    - apagar a pasta ${plano.pasta} (o agente, a configuracao e a conexao deste computador)`);
+    if (plano.fica)
+        io.escrever(`  O arquivo ${plano.fica} foi posto a mao fora dessa pasta e nao e apagado.`);
+    io.escrever('  O computador continua listado no painel: remova-o em Meus dispositivos.');
+    io.escrever('');
+    io.escrever('  Tecle Enter para desinstalar, ou feche esta janela para cancelar.');
+    await amb.esperarEnter?.();
+    io.escrever('');
+    let falhou = false;
+    const passo = async (nome: string, fazer: () => Promise<string>) => {
+        try {
+            io.escrever(`  [ OK ]  ${await fazer()}`);
+        }
+        catch (erro) {
+            falhou = true;
+            io.escrever(`  [ FALHOU ]  ${nome}: ${erro instanceof Error ? erro.message : String(erro)}`);
+        }
+    };
+    await passo('parar o agente', async () => `agente parado (${await d.pararAgentes()} processo(s))`);
+    await passo('apagar a tarefa agendada', async () => (await d.apagarTarefa()) === 'apagada' ? `tarefa ${NOME_DA_TAREFA} apagada` : `tarefa ${NOME_DA_TAREFA}: nao existia`);
+    await passo('apagar os atalhos', async () => `${await d.apagarAtalhos()} atalho(s) apagado(s)`);
+    await passo('apagar a pasta', async () => {
+        await d.apagarPastaAoSair(plano.pasta);
+        return `a pasta ${plano.pasta} sai assim que esta janela fechar`;
+    });
+    io.escrever('');
+    io.escrever(falhou ? '  Desinstalado em parte — veja acima o que falhou.' : '  Pronto: o agente foi desinstalado.');
+    io.escrever('  Tecle Enter para fechar.');
+    await amb.esperarEnter?.();
+    io.sair(falhou ? 1 : 0);
 }
