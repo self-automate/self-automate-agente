@@ -35,6 +35,8 @@ export type AcaoGravada = {
     tipo: 'web.baixar';
     seletor: string;
     arquivo: string;
+    pasta?: string;
+    nome?: string;
 } | {
     tipo: 'janela.clicar';
     titulo: string;
@@ -78,6 +80,20 @@ const alvo = (v: unknown): AlvoNaJanela | undefined => {
     const nome = texto(o.nome);
     return nome ? { nome } : undefined;
 };
+const soNome = (v: unknown): string | undefined => {
+    const a = texto(v);
+    return a && a.length <= 255 && !/[\\/:]/.test(a) && a !== '.' && a !== '..' ? a : undefined;
+};
+const pastaAbsoluta = (v: unknown): string | undefined => {
+    const p = texto(v);
+    if (!p || p.length > 260)
+        return undefined;
+    if (!/^[A-Za-z]:\\/.test(p) && !/^\\\\[^\\]+\\[^\\]+/.test(p))
+        return undefined;
+    if (/[<>"|?*:]/.test(p.slice(2)))
+        return undefined;
+    return p.split(/[\\/]/).some((parte) => parte === '..') ? undefined : p;
+};
 const tecla = (v: unknown): string | undefined => {
     const t = texto(v)?.toUpperCase();
     return t && ehTecla(t) ? t : undefined;
@@ -112,9 +128,14 @@ function acao(v: unknown): AcaoGravada | undefined {
             return t ? { tipo: 'web.teclar', tecla: t } : undefined;
         }
         case 'web.baixar': {
-            const a = texto(o.arquivo);
-            const nomeSo = !!a && a.length <= 255 && !/[\\/:]/.test(a) && a !== '.' && a !== '..';
-            return seletor && nomeSo ? { tipo: 'web.baixar', seletor, arquivo: a } : undefined;
+            const a = soNome(o.arquivo);
+            if (!seletor || !a)
+                return undefined;
+            const pasta = o.pasta === undefined ? undefined : pastaAbsoluta(o.pasta);
+            const nome = o.nome === undefined ? undefined : soNome(o.nome);
+            if ((o.pasta !== undefined && !pasta) || (o.nome !== undefined && !nome))
+                return undefined;
+            return { tipo: 'web.baixar', seletor, arquivo: a, ...(pasta ? { pasta } : {}), ...(nome ? { nome } : {}) };
         }
         case 'janela.clicar': {
             const a = alvo(o.alvo);
@@ -211,14 +232,46 @@ export function avisoDosNaoGravados(c: NaoGravados): string | undefined {
 }
 const curto = (t: string, n = 60): string => (t.length > n ? `"${t.slice(0, n)}…"` : `"${t}"`);
 const alvoNaTela = (a: AlvoNaJanela): string => ('id' in a ? a.id : `"${a.nome}"`);
+const entreAspas = (t: string): string => `"${t.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+export const seletorPorPapel = (papel: string, nome: string): string => `role=${papel}[name=${entreAspas(nome)}]`;
+export const seletorPorId = (id: string): string => `[id=${entreAspas(id)}]`;
+export const seletorPorTexto = (texto: string): string => `text=${entreAspas(texto)}`;
+const PAPEL_NA_TELA: Record<string, string> = {
+    button: 'no botão',
+    link: 'no link',
+    menuitem: 'no item de menu',
+    menuitemcheckbox: 'no item de menu',
+    menuitemradio: 'no item de menu',
+    tab: 'na aba',
+    option: 'na opção',
+    checkbox: 'na caixa',
+    radio: 'na opção',
+    switch: 'no botão',
+    combobox: 'na lista',
+    textbox: 'no campo',
+    searchbox: 'no campo de busca',
+    row: 'na linha',
+    cell: 'na célula',
+    gridcell: 'na célula',
+    treeitem: 'no item',
+};
+function ondeNaTela(seletor: string): string {
+    const m = /^role=([a-z]+)\[name="((?:[^"\\]|\\.)*)"\]$/.exec(seletor);
+    if (!m)
+        return `em ${seletor}`;
+    const nome = m[2]!.replace(/\\(.)/g, '$1');
+    return `${PAPEL_NA_TELA[m[1]!] ?? `em ${m[1]}`} "${nome}"`;
+}
 export function descreverAcao(a: AcaoGravada): string {
     switch (a.tipo) {
         case 'web.abrir':
             return `abrir ${a.url}`;
         case 'web.clicar':
-            return `clicar em ${a.seletor}`;
-        case 'web.preencher':
-            return `preencher ${a.seletor} com ${curto(a.valor)}`;
+            return `clicar ${ondeNaTela(a.seletor)}`;
+        case 'web.preencher': {
+            const onde = ondeNaTela(a.seletor);
+            return `preencher ${onde.startsWith('no campo') ? `o campo${onde.slice('no campo'.length)}` : a.seletor} com ${curto(a.valor)}`;
+        }
         case 'web.preencherSegredo':
             return `senha em ${a.seletor} — use uma credencial do cofre`;
         case 'web.selecionar':
@@ -228,7 +281,7 @@ export function descreverAcao(a: AcaoGravada): string {
         case 'web.teclar':
             return `tecla ${a.tecla}`;
         case 'web.baixar':
-            return `baixar ${curto(a.arquivo)} (clicando em ${a.seletor})`;
+            return `baixar ${curto(a.nome ?? a.arquivo)}${a.pasta ? ` em ${a.pasta}` : ''} (clicando ${ondeNaTela(a.seletor)})`;
         case 'janela.clicar':
             return `${a.titulo}: clicar em ${alvoNaTela(a.alvo)}`;
         case 'janela.digitar':
