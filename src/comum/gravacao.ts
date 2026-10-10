@@ -228,3 +228,22 @@ export function descreverAcao(a: AcaoGravada): string {
             return `${a.titulo}: tecla ${a.tecla}`;
     }
 }
+export function juntarDigitacao(acoes: AcaoGravada[]): AcaoGravada[] {
+    const saida: AcaoGravada[] = [];
+    for (const a of acoes) {
+        const anterior = saida.at(-1);
+        if (a.tipo === 'web.preencher' && anterior?.tipo === 'web.preencher' && anterior.seletor === a.seletor) {
+            saida[saida.length - 1] = a;
+            continue;
+        }
+        if (a.tipo === 'janela.digitar' &&
+            anterior?.tipo === 'janela.digitar' &&
+            anterior.titulo === a.titulo &&
+            JSON.stringify(anterior.alvo) === JSON.stringify(a.alvo)) {
+            saida[saida.length - 1] = a;
+            continue;
+        }
+        saida.push(a);
+    }
+    return saida;
+}

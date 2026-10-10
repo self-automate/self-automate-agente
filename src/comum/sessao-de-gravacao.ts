@@ -1,4 +1,4 @@
-import { descreverAcao, somarNaoGravados, type AcaoGravada, type GestoNaoGravado, type NaoGravados } from './gravacao.js';
+import { descreverAcao, juntarDigitacao, somarNaoGravados, type AcaoGravada, type GestoNaoGravado, type NaoGravados } from './gravacao.js';
 import type { ElementoNaTela } from './capturador-janela.js';
 export interface PedidoDeGravacao {
     endereco?: string;
@@ -199,7 +199,7 @@ export async function gravarPelaOrdem(pedido: PedidoDeGravacao, mundo: MundoDaGr
         let motivo: ResultadoDaGravacao['motivo'];
         for (;;) {
             await mundo.esperar(intervalo);
-            const ateAqui = juntarAcoes(web, aoVivo);
+            const ateAqui = juntarDigitacao(juntarAcoes(web, aoVivo));
             const ultima = ateAqui.at(-1);
             barra?.atualizar({
                 acoes: ateAqui.length,
@@ -243,7 +243,7 @@ export async function gravarPelaOrdem(pedido: PedidoDeGravacao, mundo: MundoDaGr
         if (doWindows && doWindows.semAlvo > 0) {
             avisos.push(`${doWindows.semAlvo} gesto(s) no Windows ficaram de fora: o elemento não tinha identificador nem nome, e coordenada não é alvo.`);
         }
-        const acoes = caber(juntarAcoes(web, janela), avisos);
+        const acoes = caber(juntarDigitacao(juntarAcoes(web, janela)), avisos);
         const naoGravados = somarNaoGravados(gestosDaWeb, doWindows?.naoGravados ?? {});
         return { acoes, avisos, motivo, naoGravados, entregue: await entregar(mundo, acoes, avisos, intervalo, naoGravados) };
     }
