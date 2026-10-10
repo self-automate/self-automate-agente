@@ -3,6 +3,7 @@ import type { AcaoGravada, GestoNaoGravado } from './gravacao.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { gravarNoNavegador } from './capturador-web.js';
+import { powershell } from '../blocos/powershell.js';
 export interface NavegadorDaGravacao {
     qual: 'chrome' | 'edge';
     executavel: string;
@@ -84,5 +85,46 @@ export async function abrirNavegadorDaGravacao(navegador: NavegadorDaGravacao, a
     catch (erro) {
         await browser.close();
         throw erro;
+    }
+}
+const TRAZER = `
+Add-Type -Name J -Namespace SelfAutomateFrente -MemberDefinition @'
+public delegate bool CB(System.IntPtr h, System.IntPtr l);
+[DllImport("user32.dll")] public static extern bool EnumWindows(CB f, System.IntPtr l);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint pid);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, System.IntPtr pid);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr h);
+[DllImport("user32.dll")] public static extern System.IntPtr GetWindow(System.IntPtr h, uint c);
+[DllImport("user32.dll")] public static extern int GetWindowTextLength(System.IntPtr h);
+[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c);
+[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
+[DllImport("user32.dll")] public static extern bool BringWindowToTop(System.IntPtr h);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
+[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+'@
+$alvo = [uint32]$env:SA_PROCESSO
+$script:janela = [IntPtr]::Zero
+[void][SelfAutomateFrente.J]::EnumWindows({ param($h, $l)
+  $p = 0; [void][SelfAutomateFrente.J]::GetWindowThreadProcessId($h, [ref]$p)
+  if ($p -eq $alvo -and [SelfAutomateFrente.J]::IsWindowVisible($h) -and [SelfAutomateFrente.J]::GetWindow($h, 4) -eq [IntPtr]::Zero -and [SelfAutomateFrente.J]::GetWindowTextLength($h) -gt 0) { $script:janela = $h; return $false }
+  $true }, [IntPtr]::Zero)
+if ($script:janela -eq [IntPtr]::Zero) { 'sem janela'; return }
+[void][SelfAutomateFrente.J]::ShowWindow($script:janela, 3)
+$eu = [SelfAutomateFrente.J]::GetCurrentThreadId()
+$ela = [SelfAutomateFrente.J]::GetWindowThreadProcessId([SelfAutomateFrente.J]::GetForegroundWindow(), [IntPtr]::Zero)
+$ligou = $ela -ne 0 -and $ela -ne $eu -and [SelfAutomateFrente.J]::AttachThreadInput($eu, $ela, $true)
+[void][SelfAutomateFrente.J]::BringWindowToTop($script:janela)
+$frente = [SelfAutomateFrente.J]::SetForegroundWindow($script:janela)
+if ($ligou) { [void][SelfAutomateFrente.J]::AttachThreadInput($eu, $ela, $false) }
+"maximizada; frente=$frente"`;
+export async function trazerParaFrente(processo: number | undefined): Promise<string> {
+    if (!processo || process.platform !== 'win32')
+        return 'sem processo';
+    try {
+        return (await powershell(TRAZER, { env: { SA_PROCESSO: String(processo) } })).trim();
+    }
+    catch (erro) {
+        return `não trouxe: ${String(erro).slice(0, 200)}`;
     }
 }

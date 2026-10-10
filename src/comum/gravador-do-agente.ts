@@ -1,6 +1,6 @@
 import type { GravadorDoAgente } from './atender-ordem.js';
 import { gravarNoWindows } from './capturador-janela.js';
-import { abrirNavegadorDaGravacao, escolherNavegadorDaGravacao } from './navegador-da-gravacao.js';
+import { abrirNavegadorDaGravacao, escolherNavegadorDaGravacao, trazerParaFrente } from './navegador-da-gravacao.js';
 import { gravarPelaOrdem, ignorarNaGravacao, lerPedidoDeGravacao, noNavegadorComum } from './sessao-de-gravacao.js';
 import { abrirBarraDaGravacao } from './barra-da-gravacao.js';
 import { registrar } from './log.js';
@@ -20,6 +20,7 @@ export interface MundoDoGravador {
     abrirNavegador?: typeof abrirNavegadorDaGravacao;
     gravarJanelas?: typeof gravarNoWindows;
     abrirBarra?: typeof abrirBarraDaGravacao;
+    trazerParaFrente?: typeof trazerParaFrente;
     intervaloMs?: number;
 }
 const MOTIVOS = { parar: 'parada no Studio', fechou: 'navegador fechado', limite: 'limite de tempo', barra: 'parada na barra' } as const;
@@ -27,6 +28,7 @@ export function gravadorDoAgente(m: MundoDoGravador): GravadorDoAgente {
     const abrir = m.abrirNavegador ?? abrirNavegadorDaGravacao;
     const ganchos = m.gravarJanelas ?? gravarNoWindows;
     const barraDeVerdade = m.abrirBarra ?? abrirBarraDaGravacao;
+    const paraFrente = m.trazerParaFrente ?? trazerParaFrente;
     return {
         gravar: async (argumento, parcial) => {
             const lido = lerPedidoDeGravacao(argumento);
@@ -60,6 +62,8 @@ export function gravadorDoAgente(m: MundoDoGravador): GravadorDoAgente {
                         await g.pagina.goto(endereco).catch(() => undefined);
                     else
                         await g.pagina.setContent(PAGINA_INICIAL).catch(() => undefined);
+                    const frente = await paraFrente(g.processo).catch((erro: unknown) => `não trouxe: ${String(erro).slice(0, 200)}`);
+                    registrar('info', 'janela da gravação', { frente });
                     return { fechado: g.fechado, parar: g.parar, ...(escolha.aviso ? { aviso: escolha.aviso } : {}) };
                 },
                 gravarJanelas: async (aoAtualizar) => {
