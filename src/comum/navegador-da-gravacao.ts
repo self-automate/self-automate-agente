@@ -47,6 +47,7 @@ export function opcoesDeLancamento(navegador: NavegadorDaGravacao): LaunchOption
 export interface NavegadorGravando {
     pagina: Page;
     versao: string;
+    processo?: number;
     fechado: Promise<void>;
     parar(): Promise<void>;
 }
@@ -57,9 +58,20 @@ export async function abrirNavegadorDaGravacao(navegador: NavegadorDaGravacao, a
         await gravarNoNavegador(contexto, aoGravar, aoGesto);
         const pagina = await contexto.newPage();
         const fechado = new Promise<void>((r) => browser.once('disconnected', () => r()));
+        const processo = await browser
+            .newBrowserCDPSession()
+            .then((cdp) => cdp.send('SystemInfo.getProcessInfo'))
+            .then((i) => (i as {
+            processInfo: {
+                type: string;
+                id: number;
+            }[];
+        }).processInfo.find((p) => p.type === 'browser')?.id)
+            .catch(() => undefined);
         return {
             pagina,
             versao: browser.version(),
+            ...(processo ? { processo } : {}),
             fechado,
             parar: async () => {
                 if (browser.isConnected())

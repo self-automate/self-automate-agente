@@ -48,15 +48,17 @@ const alvoDe = (e: ElementoNaTela): AlvoNaJanela | undefined => {
     return id ? { id } : e.nome ? { nome: e.nome } : undefined;
 };
 const mesmo = (a: ElementoNaTela, b: ElementoNaTela): boolean => a.titulo === b.titulo && (a.id ?? '') === (b.id ?? '') && (a.nome ?? '') === (b.nome ?? '');
-export function montarAcoesDeJanela(eventos: EventoDeJanela[], ignorar?: (el: ElementoNaTela) => boolean): {
+export function montarAcoesDeJanela(eventos: EventoDeJanela[], ignorar?: (el: ElementoNaTela) => boolean, fora?: (el: ElementoNaTela) => boolean): {
     acoes: AcaoGravada[];
     momentos: number[];
     semAlvo: number;
     naoGravados: NaoGravados;
+    foraDaGravacao: number;
 } {
     const acoes: AcaoGravada[] = [];
     const momentos: number[] = [];
     const naoGravados: NaoGravados = {};
+    let foraDaGravacao = 0;
     let quando = 0;
     const empurrar = (a: AcaoGravada): void => {
         acoes.push(a);
@@ -86,6 +88,11 @@ export function montarAcoesDeJanela(eventos: EventoDeJanela[], ignorar?: (el: El
     for (const [i, e] of eventos.entries()) {
         if (ignorar && e.el && ignorar(e.el))
             continue;
+        if (fora && e.el && fora(e.el)) {
+            if (e.tipo === 'clique')
+                foraDaGravacao++;
+            continue;
+        }
         quando = e.em ?? i;
         switch (e.tipo) {
             case 'clique': {
@@ -120,7 +127,7 @@ export function montarAcoesDeJanela(eventos: EventoDeJanela[], ignorar?: (el: El
                 break;
         }
     }
-    return { acoes, momentos, semAlvo, naoGravados };
+    return { acoes, momentos, semAlvo, naoGravados, foraDaGravacao };
 }
 const CODIGO_NATIVO = `
 using System;
@@ -376,6 +383,7 @@ export interface GravacaoNoWindows {
         momentos: number[];
         semAlvo: number;
         naoGravados: NaoGravados;
+        foraDaGravacao: number;
         eventos: number;
     }>;
 }
@@ -384,9 +392,11 @@ export async function gravarNoWindows(o: {
         acoes: AcaoGravada[];
         momentos: number[];
         naoGravados: NaoGravados;
+        foraDaGravacao: number;
     }) => void;
     aoBruto?: (linha: string) => void;
     ignorar?: (el: ElementoNaTela) => boolean;
+    fora?: (el: ElementoNaTela) => boolean;
 } = {}): Promise<GravacaoNoWindows> {
     const { spawn } = await import('node:child_process');
     const { createInterface } = await import('node:readline');
@@ -414,14 +424,14 @@ export async function gravarNoWindows(o: {
             if (!e)
                 return;
             eventos.push({ ...e, em: Date.now() });
-            o.aoAtualizar?.(montarAcoesDeJanela(eventos, o.ignorar));
+            o.aoAtualizar?.(montarAcoesDeJanela(eventos, o.ignorar, o.fora));
         });
     });
     return {
         parar: async () => {
             processo.removeAllListeners('exit');
             processo.kill();
-            const m = montarAcoesDeJanela(eventos, o.ignorar);
+            const m = montarAcoesDeJanela(eventos, o.ignorar, o.fora);
             return { ...m, eventos: eventos.length };
         },
     };

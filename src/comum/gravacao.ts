@@ -200,3 +200,31 @@ export function avisoDosNaoGravados(c: NaoGravados): string | undefined {
         return undefined;
     return `Não viraram passo — complete à mão no Studio: ${itens.map((g) => `${c[g]} × ${NOMES_DOS_GESTOS[g]}`).join(', ')}.`;
 }
+const curto = (t: string, n = 60): string => (t.length > n ? `"${t.slice(0, n)}…"` : `"${t}"`);
+const alvoNaTela = (a: AlvoNaJanela): string => ('id' in a ? a.id : `"${a.nome}"`);
+export function descreverAcao(a: AcaoGravada): string {
+    switch (a.tipo) {
+        case 'web.abrir':
+            return `abrir ${a.url}`;
+        case 'web.clicar':
+            return `clicar em ${a.seletor}`;
+        case 'web.preencher':
+            return `preencher ${a.seletor} com ${curto(a.valor)}`;
+        case 'web.preencherSegredo':
+            return `senha em ${a.seletor} — use uma credencial do cofre`;
+        case 'web.selecionar':
+            return `escolher ${curto(a.texto)} em ${a.seletor}`;
+        case 'web.marcar':
+            return `${a.marcado ? 'marcar' : 'desmarcar'} ${a.seletor}`;
+        case 'web.teclar':
+            return `tecla ${a.tecla}`;
+        case 'janela.clicar':
+            return `${a.titulo}: clicar em ${alvoNaTela(a.alvo)}`;
+        case 'janela.digitar':
+            return `${a.titulo}: digitar ${curto(a.valor)} em ${alvoNaTela(a.alvo)}`;
+        case 'janela.digitarSegredo':
+            return `${a.titulo}: senha em ${alvoNaTela(a.alvo)} — use uma credencial do cofre`;
+        case 'janela.teclar':
+            return `${a.titulo}: tecla ${a.tecla}`;
+    }
+}
