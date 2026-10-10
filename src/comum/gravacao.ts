@@ -32,6 +32,10 @@ export type AcaoGravada = {
     tipo: 'web.teclar';
     tecla: string;
 } | {
+    tipo: 'web.baixar';
+    seletor: string;
+    arquivo: string;
+} | {
     tipo: 'janela.clicar';
     titulo: string;
     alvo: AlvoNaJanela;
@@ -106,6 +110,11 @@ function acao(v: unknown): AcaoGravada | undefined {
         case 'web.teclar': {
             const t = tecla(o.tecla);
             return t ? { tipo: 'web.teclar', tecla: t } : undefined;
+        }
+        case 'web.baixar': {
+            const a = texto(o.arquivo);
+            const nomeSo = !!a && a.length <= 255 && !/[\\/:]/.test(a) && a !== '.' && a !== '..';
+            return seletor && nomeSo ? { tipo: 'web.baixar', seletor, arquivo: a } : undefined;
         }
         case 'janela.clicar': {
             const a = alvo(o.alvo);
@@ -218,6 +227,8 @@ export function descreverAcao(a: AcaoGravada): string {
             return `${a.marcado ? 'marcar' : 'desmarcar'} ${a.seletor}`;
         case 'web.teclar':
             return `tecla ${a.tecla}`;
+        case 'web.baixar':
+            return `baixar ${curto(a.arquivo)} (clicando em ${a.seletor})`;
         case 'janela.clicar':
             return `${a.titulo}: clicar em ${alvoNaTela(a.alvo)}`;
         case 'janela.digitar':
@@ -228,10 +239,14 @@ export function descreverAcao(a: AcaoGravada): string {
             return `${a.titulo}: tecla ${a.tecla}`;
     }
 }
-export function juntarDigitacao(acoes: AcaoGravada[]): AcaoGravada[] {
+export function juntarSeguidas(acoes: AcaoGravada[]): AcaoGravada[] {
     const saida: AcaoGravada[] = [];
     for (const a of acoes) {
         const anterior = saida.at(-1);
+        if (a.tipo === 'web.baixar' && anterior?.tipo === 'web.clicar' && anterior.seletor === a.seletor) {
+            saida[saida.length - 1] = a;
+            continue;
+        }
         if (a.tipo === 'web.preencher' && anterior?.tipo === 'web.preencher' && anterior.seletor === a.seletor) {
             saida[saida.length - 1] = a;
             continue;

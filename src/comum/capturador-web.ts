@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { BrowserContext, Page } from 'playwright';
+import type { BrowserContext, Download, Page } from 'playwright';
+import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
 import { ehGestoNaoGravado, lerGravacao, type AcaoGravada, type GestoNaoGravado } from './gravacao.js';
 export const PREFIXO_DA_PONTE = '__selfAutomateGravar';
 const JANELA_DO_GESTO_MS = 4000;
@@ -111,8 +114,12 @@ export function scriptDoCapturador(ponte: string): string {
   }, true);
 })();`;
 }
-export async function gravarNoNavegador(contexto: BrowserContext, aoGravar: (a: AcaoGravada) => void, aoGesto?: (g: GestoNaoGravado) => void): Promise<void> {
+export async function gravarNoNavegador(contexto: BrowserContext, aoGravar: (a: AcaoGravada) => void, aoGesto?: (g: GestoNaoGravado) => void, pastaDosBaixados?: string): Promise<void> {
     let ultimoGesto = 0;
+    let ultimoClique: {
+        seletor: string;
+        em: number;
+    } | undefined;
     let ultima = '';
     const entregar = (bruto: unknown): void => {
         const lida = lerGravacao({ versao: 1, acoes: [bruto] }).gravacao?.acoes[0];
@@ -124,6 +131,8 @@ export async function gravarNoNavegador(contexto: BrowserContext, aoGravar: (a: 
         ultima = chave;
         if (lida.tipo !== 'web.abrir')
             ultimoGesto = Date.now();
+        if (lida.tipo === 'web.clicar')
+            ultimoClique = { seletor: lida.seletor, em: Date.now() };
         aoGravar(lida);
     };
     const ponte = `${PREFIXO_DA_PONTE}_${randomUUID().replace(/-/g, '')}`;
@@ -144,7 +153,28 @@ export async function gravarNoNavegador(contexto: BrowserContext, aoGravar: (a: 
         entregar(acao);
     });
     await contexto.addInitScript(scriptDoCapturador(ponte));
+    const baixou = async (d: Download): Promise<void> => {
+        await new Promise((r) => setTimeout(r, 400));
+        const arquivo = basename(d.suggestedFilename());
+        if (ultimoClique && Date.now() - ultimoClique.em < 15000) {
+            entregar({ tipo: 'web.baixar', seletor: ultimoClique.seletor, arquivo });
+        }
+        if (!pastaDosBaixados)
+            return;
+        try {
+            await mkdir(pastaDosBaixados, { recursive: true });
+            const ext = extname(arquivo);
+            const raiz = arquivo.slice(0, arquivo.length - ext.length);
+            let destino = join(pastaDosBaixados, arquivo);
+            for (let i = 1; existsSync(destino) && i < 1000; i++)
+                destino = join(pastaDosBaixados, `${raiz} (${i})${ext}`);
+            await d.saveAs(destino);
+        }
+        catch {
+        }
+    };
     const vigiar = (pagina: Page): void => {
+        pagina.on('download', (d) => void baixou(d));
         pagina.on('framenavigated', (quadro) => {
             if (quadro !== pagina.mainFrame())
                 return;

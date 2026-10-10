@@ -1,5 +1,7 @@
 import type { Browser, LaunchOptions, Page } from 'playwright';
 import type { AcaoGravada, GestoNaoGravado } from './gravacao.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { gravarNoNavegador } from './capturador-web.js';
 export interface NavegadorDaGravacao {
     qual: 'chrome' | 'edge';
@@ -55,7 +57,7 @@ export async function abrirNavegadorDaGravacao(navegador: NavegadorDaGravacao, a
     const browser: Browser = await (await import('playwright')).chromium.launch(opcoesDeLancamento(navegador));
     try {
         const contexto = await browser.newContext({ viewport: null });
-        await gravarNoNavegador(contexto, aoGravar, aoGesto);
+        await gravarNoNavegador(contexto, aoGravar, aoGesto, join(homedir(), 'Downloads'));
         const pagina = await contexto.newPage();
         const fechado = new Promise<void>((r) => browser.once('disconnected', () => r()));
         const processo = await browser
